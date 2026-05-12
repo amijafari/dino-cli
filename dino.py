@@ -24,7 +24,7 @@ DINO_X = 6
 IDEAL_W, IDEAL_H = 100, 30
 # Absolute minimum playable terminal size; below this we show the too-small banner
 MIN_COLS, MIN_ROWS = 40, 12
-HI_PATH = Path.home() / ".dinosaur-game-cli" / "highscore.json"
+HI_PATH = Path.home() / ".dino-game-cli" / "highscore.json"
 
 RUN, JUMP, DUCK, DEAD = range(4)
 
@@ -230,13 +230,19 @@ class Obstacle:
 
 
 class Pterodactyl(Obstacle):
+    # Spacing required between a bird and any neighboring obstacle.
+    # Why: jumping a cactus while ducking/jumping a bird in the same beat is unfair.
+    MIN_GAP = 45
+
     def __init__(self, x, ground_y):
         super().__init__(PTERO_A, x, ground_y)
-        # low forces duck, ground-level forces jump
-        if random.random() < 0.55:
-            self.y = ground_y - 4   # duck under
+        roll = random.random()
+        if roll < 0.34:
+            self.y = ground_y - 6   # above dino — run under, no action
+        elif roll < 0.67:
+            self.y = ground_y - 4   # middle — duck under
         else:
-            self.y = ground_y - 1   # jump over
+            self.y = ground_y - 1   # ground-level — jump over
         self.flap = 0
 
     def update(self, dx):
@@ -316,10 +322,12 @@ class World:
         if self.spawn_cd <= 0 and (
             not self.obstacles or self.obstacles[-1].x < self.W - 25
         ):
-            self._spawn_obstacle()
-            self.spawn_cd = random.uniform(
-                max(20, 60 / self.speed), max(35, 100 / self.speed)
-            )
+            spawned_bird = self._spawn_obstacle()
+            lo, hi = max(20, 60 / self.speed), max(35, 100 / self.speed)
+            if spawned_bird:
+                lo += 20
+                hi += 20
+            self.spawn_cd = random.uniform(lo, hi)
 
         self.cloud_cd -= dx
         if self.cloud_cd <= 0:
@@ -354,12 +362,16 @@ class World:
                 pass
 
     def _spawn_obstacle(self):
-        if self.score() > 450 and random.random() < 0.28:
+        bird = self.score() > 450 and random.random() < 0.28
+        if bird and self.obstacles and self.obstacles[-1].x > self.W - Pterodactyl.MIN_GAP:
+            bird = False
+        if bird:
             self.obstacles.append(Pterodactyl(self.W + 1, self.ground_y))
-        else:
-            self.obstacles.append(
-                Obstacle(random.choice(CACTI), self.W + 1, self.ground_y)
-            )
+            return True
+        self.obstacles.append(
+            Obstacle(random.choice(CACTI), self.W + 1, self.ground_y)
+        )
+        return False
 
 
 # ---------- render ----------
