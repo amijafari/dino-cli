@@ -297,6 +297,12 @@ class World:
         if self.state == "PLAY":
             self.dino.duck_press()
 
+    def toggle_pause(self):
+        if self.state == "PLAY":
+            self.state = "PAUSE"
+        elif self.state == "PAUSE":
+            self.state = "PLAY"
+
     def tick(self):
         if self.state != "PLAY":
             return
@@ -451,6 +457,11 @@ def render(stdscr, world):
         _safe_addstr(
             stdscr, iy + vh // 2, ix + max(0, (vw - len(msg)) // 2), msg, attr | curses.A_BOLD
         )
+    elif world.state == "PAUSE":
+        msg = "P A U S E D  --  press P to resume"
+        _safe_addstr(
+            stdscr, iy + vh // 2, ix + max(0, (vw - len(msg)) // 2), msg, attr | curses.A_BOLD
+        )
     elif world.state == "DEAD":
         m1 = "G A M E   O V E R"
         m2 = "press R to restart, Q to quit"
@@ -521,6 +532,13 @@ def main(stdscr):
                     world.jump()
                 elif ch in (curses.KEY_DOWN, ord("s")):
                     world.duck_press()
+                elif ch in (ord("p"), ord("P")):
+                    world.toggle_pause()
+                elif ch in (ord("q"), ord("Q"), 27):
+                    world.quit = True
+            elif world.state == "PAUSE":
+                if ch in (ord("p"), ord("P")):
+                    world.toggle_pause()
                 elif ch in (ord("q"), ord("Q"), 27):
                     world.quit = True
             elif world.state == "DEAD":
