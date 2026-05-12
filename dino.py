@@ -16,7 +16,7 @@ FRAME = 1 / 30.0
 GRAVITY = 0.05
 JUMP_V = -0.7
 FAST_FALL = 0.20
-START_SPEED = 14.0
+START_SPEED = 20.0
 MAX_SPEED = 22.0
 SPEED_RAMP = 0.015  # per frame
 DINO_X = 6
@@ -50,7 +50,7 @@ DINO_RUN_A = Sprite(r"""
     __
    / _)
   / /
- /_/
+\/_/
    //
 """)
 
@@ -58,21 +58,21 @@ DINO_RUN_B = Sprite(r"""
     __
    / _)
   / /
- /_/
+\/_/
    \\
 """)
 
 DINO_DUCK = Sprite(r"""
         __
   _____/_)
- /____/
+\/____/
 """)
 
 DINO_JUMP = Sprite(r"""
     __
  __/ _)__
   / /
- /_/
+\/_/
    //
 """)
 
@@ -80,7 +80,7 @@ DINO_DEAD = Sprite(r"""
     __
    /x_)
   / /
- /_/
+\/_/
    ||
 """)
 
