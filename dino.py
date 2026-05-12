@@ -20,7 +20,10 @@ START_SPEED = 14.0
 MAX_SPEED = 22.0
 SPEED_RAMP = 0.015  # per frame
 DINO_X = 6
-MIN_COLS, MIN_ROWS = 60, 15
+# Framed playfield target (visually square: cell ~2:1 → W:H ~2:1)
+IDEAL_W, IDEAL_H = 100, 30
+# Absolute minimum playable terminal size; below this we show the too-small banner
+MIN_COLS, MIN_ROWS = 40, 12
 HI_PATH = Path.home() / ".dinosaur-game-cli" / "highscore.json"
 
 RUN, JUMP, DUCK, DEAD = range(4)
@@ -63,6 +66,14 @@ DINO_DUCK = Sprite(r"""
         __
   _____/_)
  /____/
+""")
+
+DINO_JUMP = Sprite(r"""
+    __
+ __/ _)__
+  / /
+ /_/
+   //
 """)
 
 DINO_DEAD = Sprite(r"""
@@ -152,6 +163,8 @@ class Dino:
             return DINO_DEAD
         if self.state == DUCK:
             return DINO_DUCK
+        if self.state == JUMP:
+            return DINO_JUMP
         return DINO_RUN_A if (self.cycle // 4) % 2 == 0 else DINO_RUN_B
 
     def jump(self):
@@ -248,7 +261,7 @@ class Cloud:
 class World:
     def __init__(self, H, W):
         self.H, self.W = H, W
-        self.ground_y = H // 2
+        self.ground_y = (H * 2) // 3
         self.dino = Dino(self.ground_y)
         self.obstacles = []
         self.clouds = []
@@ -358,21 +371,32 @@ def _safe_addstr(stdscr, y, x, s, attr):
         pass
 
 
-def draw_sprite(stdscr, sprite, y, x, attr=0):
-    H, W = stdscr.getmaxyx()
+def draw_sprite(stdscr, sprite, y, x, vp, attr=0):
+    voy, vox, vh, vw = vp
     for dy, row in enumerate(sprite.rows):
         ry = y + dy
-        if ry < 0 or ry >= H:
+        if ry < 0 or ry >= vh:
             continue
         for dx, c in enumerate(row):
             if c == " ":
                 continue
             rx = x + dx
-            if rx < 0 or rx >= W:
+            if rx < 0 or rx >= vw:
                 continue
-            if ry == H - 1 and rx == W - 1:
-                continue  # bottom-right would scroll
-            _safe_addch(stdscr, ry, rx, c, attr)
+            _safe_addch(stdscr, voy + ry, vox + rx, c, attr)
+
+
+def _draw_border(stdscr, oy, ox, h, w, attr):
+    _safe_addch(stdscr, oy, ox, curses.ACS_ULCORNER, attr)
+    _safe_addch(stdscr, oy, ox + w + 1, curses.ACS_URCORNER, attr)
+    _safe_addch(stdscr, oy + h + 1, ox, curses.ACS_LLCORNER, attr)
+    _safe_addch(stdscr, oy + h + 1, ox + w + 1, curses.ACS_LRCORNER, attr)
+    for x in range(1, w + 1):
+        _safe_addch(stdscr, oy, ox + x, curses.ACS_HLINE, attr)
+        _safe_addch(stdscr, oy + h + 1, ox + x, curses.ACS_HLINE, attr)
+    for y in range(1, h + 1):
+        _safe_addch(stdscr, oy + y, ox, curses.ACS_VLINE, attr)
+        _safe_addch(stdscr, oy + y, ox + w + 1, curses.ACS_VLINE, attr)
 
 
 def render(stdscr, world):
@@ -381,44 +405,61 @@ def render(stdscr, world):
     night = world.is_night()
     attr = curses.A_REVERSE if night else 0
 
+    vw, vh = world.W, world.H
+    framed = H >= vh + 2 and W >= vw + 2
+    if framed:
+        ox = (W - vw - 2) // 2
+        oy = (H - vh - 2) // 2
+        iy, ix = oy + 1, ox + 1  # interior top-left
+        _draw_border(stdscr, oy, ox, vh, vw, 0)
+    else:
+        iy, ix = 0, 0
+    vp = (iy, ix, vh, vw)
+
     if night:
-        line = " " * max(0, W - 1)
-        for y in range(H):
-            _safe_addstr(stdscr, y, 0, line, curses.A_REVERSE)
+        line = " " * vw
+        for y in range(vh):
+            _safe_addstr(stdscr, iy + y, ix, line, curses.A_REVERSE)
 
     for c in world.clouds:
         sp = MOON if night else CLOUD
-        draw_sprite(stdscr, sp, c.y, int(c.x), attr)
+        draw_sprite(stdscr, sp, c.y, int(c.x), vp, attr)
 
     gy = world.ground_y + 1
-    if gy < H:
-        _safe_addstr(stdscr, gy, 0, "-" * max(0, W - 1), attr)
+    if gy < vh:
+        _safe_addstr(stdscr, iy + gy, ix, "-" * vw, attr)
 
     for o in world.obstacles:
-        draw_sprite(stdscr, o.sprite, o.y, int(o.x), attr)
+        draw_sprite(stdscr, o.sprite, o.y, int(o.x), vp, attr)
 
-    draw_sprite(stdscr, world.dino.sprite, int(world.dino.y), DINO_X, attr)
+    draw_sprite(stdscr, world.dino.sprite, int(world.dino.y), DINO_X, vp, attr)
 
     hud_left = f"HI {world.hi:05d}"
     hud_right = f"{world.score():05d}"
-    hud_y = min(H - 1, world.ground_y + 2)
-    _safe_addstr(stdscr, hud_y, 1, hud_left, attr | curses.A_DIM)
+    hud_y = min(vh - 1, world.ground_y + 2)
+    _safe_addstr(stdscr, iy + hud_y, ix + 1, hud_left, attr | curses.A_DIM)
     _safe_addstr(
-        stdscr, hud_y, max(0, W - len(hud_right) - 2), hud_right, attr | curses.A_BOLD
+        stdscr,
+        iy + hud_y,
+        ix + max(0, vw - len(hud_right) - 1),
+        hud_right,
+        attr | curses.A_BOLD,
     )
 
     if world.state == "TITLE":
         msg = "DINOSAUR  --  SPACE to start, Q to quit"
         _safe_addstr(
-            stdscr, H // 2, max(0, (W - len(msg)) // 2), msg, attr | curses.A_BOLD
+            stdscr, iy + vh // 2, ix + max(0, (vw - len(msg)) // 2), msg, attr | curses.A_BOLD
         )
     elif world.state == "DEAD":
         m1 = "G A M E   O V E R"
         m2 = "press R to restart, Q to quit"
         _safe_addstr(
-            stdscr, H // 2 - 1, max(0, (W - len(m1)) // 2), m1, attr | curses.A_BOLD
+            stdscr, iy + vh // 2 - 1, ix + max(0, (vw - len(m1)) // 2), m1, attr | curses.A_BOLD
         )
-        _safe_addstr(stdscr, H // 2 + 1, max(0, (W - len(m2)) // 2), m2, attr)
+        _safe_addstr(
+            stdscr, iy + vh // 2 + 1, ix + max(0, (vw - len(m2)) // 2), m2, attr
+        )
 
     stdscr.noutrefresh()
     curses.doupdate()
@@ -428,6 +469,13 @@ def render(stdscr, world):
 def _too_small(stdscr):
     H, W = stdscr.getmaxyx()
     return H < MIN_ROWS or W < MIN_COLS
+
+
+def _world_dims(stdscr):
+    H, W = stdscr.getmaxyx()
+    if H >= IDEAL_H + 2 and W >= IDEAL_W + 2:
+        return IDEAL_H, IDEAL_W
+    return H, W
 
 
 def main(stdscr):
@@ -443,8 +491,8 @@ def main(stdscr):
         stdscr.getch()
         return
 
-    H, W = stdscr.getmaxyx()
-    world = World(H, W)
+    gh, gw = _world_dims(stdscr)
+    world = World(gh, gw)
 
     while not world.quit:
         t0 = time.monotonic()
@@ -454,10 +502,14 @@ def main(stdscr):
             if ch == -1:
                 break
             if ch == curses.KEY_RESIZE:
-                H, W = stdscr.getmaxyx()
                 if _too_small(stdscr):
                     world.state = "TITLE"
-                world = World(H, W)
+                    continue
+                new_gh, new_gw = _world_dims(stdscr)
+                if (new_gh, new_gw) != (world.H, world.W):
+                    hi = world.hi
+                    world = World(new_gh, new_gw)
+                    world.hi = hi
                 continue
             if world.state == "TITLE":
                 if ch in (ord(" "), curses.KEY_UP, ord("w"), 10, 13):
