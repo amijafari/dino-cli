@@ -104,6 +104,12 @@ CACTUS_CLUSTER = Sprite(r"""
  |   |
 """)
 
+CACTUS_TWO_SMALL = Sprite(r"""
+ |   |
+(|) (|)
+ |   |
+""")
+
 PTERO_A = Sprite(r"""
  \__/
 ~~~~~~
@@ -125,7 +131,7 @@ MOON = Sprite(r"""
  ()
 """)
 
-CACTI = [CACTUS_SMALL, CACTUS_LARGE, CACTUS_CLUSTER]
+CACTI = [CACTUS_SMALL, CACTUS_LARGE, CACTUS_CLUSTER, CACTUS_TWO_SMALL]
 
 
 # ---------- persistence ----------
