@@ -132,6 +132,7 @@ MOON = Sprite(r"""
 """)
 
 CACTI = [CACTUS_SMALL, CACTUS_LARGE, CACTUS_CLUSTER, CACTUS_TWO_SMALL]
+CACTI_WEIGHTS = [5, 4, 2, 2]
 
 
 # ---------- persistence ----------
@@ -285,6 +286,8 @@ class World:
         self.quit = False
         self.state = "TITLE"
         self.last_bell = 0
+        self.last_cactus = None
+        self.tight_streak = 0
 
     def score(self):
         return int(self.dist / 4)
@@ -329,11 +332,7 @@ class World:
             not self.obstacles or self.obstacles[-1].x < self.W - 25
         ):
             spawned_bird = self._spawn_obstacle()
-            lo, hi = max(20, 60 / self.speed), max(35, 100 / self.speed)
-            if spawned_bird:
-                lo += 20
-                hi += 20
-            self.spawn_cd = random.uniform(lo, hi)
+            self.spawn_cd = self._next_gap(spawned_bird)
 
         self.cloud_cd -= dx
         if self.cloud_cd <= 0:
@@ -373,11 +372,39 @@ class World:
             bird = False
         if bird:
             self.obstacles.append(Pterodactyl(self.W + 1, self.ground_y))
+            self.last_cactus = None
             return True
         self.obstacles.append(
-            Obstacle(random.choice(CACTI), self.W + 1, self.ground_y)
+            Obstacle(self._pick_cactus(), self.W + 1, self.ground_y)
         )
         return False
+
+    def _pick_cactus(self):
+        # Anti-repeat weighted pick: never the same sprite twice in a row,
+        # and double-wide variants get reduced odds so they don't crowd the run.
+        choices = list(zip(CACTI, CACTI_WEIGHTS))
+        if self.last_cactus is not None:
+            choices = [(c, w) for c, w in choices if c is not self.last_cactus]
+        sprites, weights = zip(*choices)
+        pick = random.choices(sprites, weights=weights, k=1)[0]
+        self.last_cactus = pick
+        return pick
+
+    def _next_gap(self, spawned_bird):
+        # Bimodal: short bursts (tight pair) vs long breathers, so spacing
+        # feels varied instead of always landing in a narrow band.
+        base_lo = max(18, 55 / self.speed)
+        base_hi = max(32, 95 / self.speed)
+        if spawned_bird:
+            return random.uniform(base_lo + 22, base_hi + 28)
+        # Cap consecutive tight gaps so we don't get an unfair cluster wall.
+        if self.tight_streak < 2 and random.random() < 0.30:
+            self.tight_streak += 1
+            return random.uniform(base_lo, base_lo + 6)
+        self.tight_streak = 0
+        if random.random() < 0.25:
+            return random.uniform(base_hi + 15, base_hi + 45)  # long breather
+        return random.uniform(base_lo + 8, base_hi)            # normal
 
 
 # ---------- render ----------
