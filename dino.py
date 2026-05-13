@@ -77,7 +77,7 @@ class Sprite:
 
 DINO_RUN_A = Sprite(r"""
     __
-   / _)
+   /o_)
   / /
 \/_/
    //
@@ -85,7 +85,7 @@ DINO_RUN_A = Sprite(r"""
 
 DINO_RUN_B = Sprite(r"""
     __
-   / _)
+   /o_)
   / /
 \/_/
    \\
@@ -93,13 +93,13 @@ DINO_RUN_B = Sprite(r"""
 
 DINO_DUCK = Sprite(r"""
         __
-  _____/_)
+  _____/o_)
 \/____/
 """)
 
 DINO_JUMP = Sprite(r"""
     __
- __/ _)__
+ __/o_)__
   / /
 \/_/
    //
