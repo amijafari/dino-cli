@@ -99,7 +99,7 @@ DINO_DUCK = Sprite(r"""
 
 DINO_JUMP = Sprite(r"""
     __
- __/o_)__
+ __/-_)__
   / /
 \/_/
    //
