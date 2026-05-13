@@ -13,12 +13,41 @@ from pathlib import Path
 
 # ---------- tuning ----------
 FRAME = 1 / 30.0
-GRAVITY = 0.05
-JUMP_V = -0.7
-FAST_FALL = 0.20
-START_SPEED = 20.0
-MAX_SPEED = 22.0
+START_SPEED = 45.0
+MAX_SPEED = 60.0
 SPEED_RAMP = 0.015  # per frame
+
+# ---------- jump physics (auto-derived from speed range) ----------
+# Symmetric gravity model, à la Chrome's offline dino. Tune the *feel* of the
+# jump by changing the two TARGET_* constants; GRAVITY and BASE_JUMP_V are then
+# recomputed from the current speed range, so changing START_SPEED / MAX_SPEED
+# rebalances the arc automatically.
+#
+# Units: cells (vertical), ticks (FPS = 1/FRAME = 30). Symmetric ballistic arc:
+#     T_air  = 2 * v0 / g                  air time in ticks
+#     H_peak = v0² / (2 * g)               cells above ground at apex
+#     D_jump = T_air * speed / FPS         horizontal cells covered per jump
+#
+# Pick H_peak and D_jump as the design intent, evaluate at the midpoint of the
+# speed range, solve the two equations:
+#     v0 = (4 * H_peak * speed_ref) / (D_jump * FPS)
+#     g  = v0² / (2 * H_peak)        (equivalently  g = 2 * H_peak / (T_air/2)² )
+#
+# Landing velocity is +v0 by symmetry, so TERMINAL_VY just needs a small margin.
+TARGET_PEAK_H    = 6.5    # cells above ground at apex (clears tallest cactus, h=4)
+TARGET_JUMP_DIST = 24     # horizontal cells per jump at speed midpoint
+# Note: discrete-tick integration undershoots the continuous peak by ~1 cell,
+# so the actual on-screen apex is ~TARGET_PEAK_H - 1. Bump TARGET_PEAK_H if the
+# dino starts clipping taller obstacles.
+
+_FPS         = 1.0 / FRAME
+_SPEED_REF   = (START_SPEED + MAX_SPEED) / 2
+BASE_JUMP_V  = -(4 * TARGET_PEAK_H * _SPEED_REF) / (TARGET_JUMP_DIST * _FPS)
+GRAVITY      = BASE_JUMP_V ** 2 / (2 * TARGET_PEAK_H)
+TERMINAL_VY  = abs(BASE_JUMP_V) + 1.0
+
+SPEED_DROP_COEFFICIENT = 3.0   # 3× position step while fast-falling (Chrome canon)
+SPEED_DROP_INIT_VY     = 0.1   # tiny positive vy so drop starts immediately
 DINO_X = 6
 # Framed playfield target (visually square: cell ~2:1 → W:H ~2:1)
 IDEAL_W, IDEAL_H = 100, 30
@@ -176,13 +205,18 @@ class Dino:
 
     def jump(self):
         if self.state == RUN:
-            self.vy = JUMP_V
+            self.vy = BASE_JUMP_V
             self.state = JUMP
             self.duck_timer = 0
 
     def duck_press(self):
         if self.state == JUMP:
-            self.fast_fall = True
+            # Speed-drop: kill upward motion, seed a small positive vy, then
+            # the tick loop amplifies the position step by SPEED_DROP_COEFFICIENT.
+            # Mirrors Chrome dino.js setSpeedDrop.
+            if not self.fast_fall:
+                self.fast_fall = True
+                self.vy = SPEED_DROP_INIT_VY
         elif self.state in (RUN, DUCK):
             self.duck_timer = 8
             self.state = DUCK
@@ -192,10 +226,9 @@ class Dino:
         if self.state == DEAD:
             return
         if self.state == JUMP:
-            self.vy += GRAVITY
-            if self.fast_fall:
-                self.vy += FAST_FALL
-            self.y += self.vy
+            self.vy = min(self.vy + GRAVITY, TERMINAL_VY)
+            dy = self.vy * (SPEED_DROP_COEFFICIENT if self.fast_fall else 1.0)
+            self.y += dy
             floor = float(self.ground_y - DINO_RUN_A.h + 1)
             if self.y >= floor:
                 self.y = floor
