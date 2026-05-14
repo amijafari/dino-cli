@@ -17,6 +17,17 @@ START_SPEED = 45.0
 MAX_SPEED = 60.0
 SPEED_RAMP = 0.015  # per frame
 
+# Difficulty presets: (label, start_speed, max_speed, speed_ramp, gap_mult).
+# gap_mult scales obstacle spacing — >1 spreads them out (easy), <1 packs them
+# tighter (hard). Jump physics below are derived from the MEDIUM speed range,
+# so EASY plays a touch floatier and HARD a touch tighter — matches the feel.
+DIFFICULTIES = [
+    ("EASY",   35.0, 50.0, 0.010, 1.65),
+    ("MEDIUM", 45.0, 60.0, 0.015, 1.30),
+    ("HARD",   55.0, 75.0, 0.025, 1.05),
+]
+DEFAULT_DIFFICULTY = 1  # MEDIUM
+
 # ---------- jump physics (auto-derived from speed range) ----------
 # Symmetric gravity model, à la Chrome's offline dino. Tune the *feel* of the
 # jump by changing the two TARGET_* constants; GRAVITY and BASE_JUMP_V are then
@@ -305,14 +316,16 @@ class Cloud:
 
 # ---------- world ----------
 class World:
-    def __init__(self, H, W):
+    def __init__(self, H, W, difficulty=DEFAULT_DIFFICULTY):
         self.H, self.W = H, W
         self.ground_y = (H * 2) // 3
         self.dino = Dino(self.ground_y)
         self.obstacles = []
         self.clouds = []
         self.dist = 0.0
-        self.speed = START_SPEED
+        self.difficulty = difficulty
+        _, self.start_speed, self.max_speed, self.speed_ramp, self.gap_mult = DIFFICULTIES[difficulty]
+        self.speed = self.start_speed
         self.spawn_cd = 8.0
         self.cloud_cd = 3.0
         self.hi = HighScore.load()
@@ -321,6 +334,15 @@ class World:
         self.last_bell = 0
         self.last_cactus = None
         self.tight_streak = 0
+
+    @property
+    def difficulty_label(self):
+        return DIFFICULTIES[self.difficulty][0]
+
+    def set_difficulty(self, idx):
+        self.difficulty = idx % len(DIFFICULTIES)
+        _, self.start_speed, self.max_speed, self.speed_ramp, self.gap_mult = DIFFICULTIES[self.difficulty]
+        self.speed = self.start_speed
 
     def score(self):
         return int(self.dist / 4)
@@ -333,7 +355,7 @@ class World:
 
     def restart(self):
         hi = self.hi
-        self.__init__(self.H, self.W)
+        self.__init__(self.H, self.W, self.difficulty)
         self.hi = hi
         self.state = "PLAY"
 
@@ -356,7 +378,7 @@ class World:
             return
         dx = self.speed / 30.0
         self.dist += dx
-        self.speed = min(MAX_SPEED, self.speed + SPEED_RAMP)
+        self.speed = min(self.max_speed, self.speed + self.speed_ramp)
 
         self.dino.tick()
 
@@ -426,18 +448,21 @@ class World:
     def _next_gap(self, spawned_bird):
         # Bimodal: short bursts (tight pair) vs long breathers, so spacing
         # feels varied instead of always landing in a narrow band.
-        base_lo = max(18, 55 / self.speed)
-        base_hi = max(32, 95 / self.speed)
+        # gap_mult shifts the whole distribution by difficulty. Floor of 16
+        # keeps even HARD's tight bursts inside one jump arc.
+        m = self.gap_mult
+        base_lo = max(18 * m, 55 / self.speed) if m >= 1 else max(16, 18 * m)
+        base_hi = max(32 * m, 95 / self.speed) if m >= 1 else max(28, 32 * m)
         if spawned_bird:
-            return random.uniform(base_lo + 22, base_hi + 28)
+            return random.uniform(base_lo + 22 * m, base_hi + 28 * m)
         # Cap consecutive tight gaps so we don't get an unfair cluster wall.
         if self.tight_streak < 2 and random.random() < 0.30:
             self.tight_streak += 1
-            return random.uniform(base_lo, base_lo + 6)
+            return random.uniform(base_lo, base_lo + 6 * m)
         self.tight_streak = 0
         if random.random() < 0.25:
-            return random.uniform(base_hi + 15, base_hi + 45)  # long breather
-        return random.uniform(base_lo + 8, base_hi)            # normal
+            return random.uniform(base_hi + 15 * m, base_hi + 45 * m)  # long breather
+        return random.uniform(base_lo + 8 * m, base_hi)                # normal
 
 
 # ---------- render ----------
@@ -531,9 +556,26 @@ def render(stdscr, world):
     )
 
     if world.state == "TITLE":
-        msg = "DINOSAUR  --  SPACE to start, Q to quit"
+        title = "D I N O S A U R"
+        hint = "UP/DOWN to choose,  SPACE to start,  Q to quit"
+        cy = iy + vh // 2 - 3
         _safe_addstr(
-            stdscr, iy + vh // 2, ix + max(0, (vw - len(msg)) // 2), msg, attr | curses.A_BOLD
+            stdscr, cy, ix + max(0, (vw - len(title)) // 2), title, attr | curses.A_BOLD
+        )
+        for i, (label, *_rest) in enumerate(DIFFICULTIES):
+            selected = i == world.difficulty
+            marker = ">" if selected else " "
+            line = f"{marker} {label:^10s} {marker}"
+            row = cy + 2 + i
+            # On night theme attr is A_REVERSE; toggling it again on selection
+            # would un-reverse the cell, so XOR keeps the highlight readable.
+            a = (attr ^ curses.A_REVERSE) if selected else (attr | curses.A_DIM)
+            if selected:
+                a |= curses.A_BOLD
+            _safe_addstr(stdscr, row, ix + max(0, (vw - len(line)) // 2), line, a)
+        _safe_addstr(
+            stdscr, cy + 2 + len(DIFFICULTIES) + 1,
+            ix + max(0, (vw - len(hint)) // 2), hint, attr
         )
     elif world.state == "PAUSE":
         msg = "P A U S E D  --  press P to resume"
@@ -596,13 +638,19 @@ def main(stdscr):
                     continue
                 new_gh, new_gw = _world_dims(stdscr)
                 if (new_gh, new_gw) != (world.H, world.W):
-                    hi = world.hi
-                    world = World(new_gh, new_gw)
+                    hi, diff = world.hi, world.difficulty
+                    world = World(new_gh, new_gw, diff)
                     world.hi = hi
                 continue
             if world.state == "TITLE":
-                if ch in (ord(" "), curses.KEY_UP, ord("w"), 10, 13):
+                if ch in (ord(" "), 10, 13):
                     world.start()
+                elif ch in (curses.KEY_UP, ord("w"), ord("W")):
+                    world.set_difficulty(world.difficulty - 1)
+                elif ch in (curses.KEY_DOWN, ord("s"), ord("S")):
+                    world.set_difficulty(world.difficulty + 1)
+                elif ch in (ord("1"), ord("2"), ord("3")):
+                    world.set_difficulty(ch - ord("1"))
                 elif ch in (ord("q"), ord("Q"), 27):
                     world.quit = True
             elif world.state == "PLAY":
