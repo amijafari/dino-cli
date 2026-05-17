@@ -584,7 +584,7 @@ def render(stdscr, world):
         )
     elif world.state == "DEAD":
         m1 = "G A M E   O V E R"
-        m2 = "press R to restart, Q to quit"
+        m2 = "press SPACE/P/R to restart, Q to quit"
         _safe_addstr(
             stdscr, iy + vh // 2 - 1, ix + max(0, (vw - len(m1)) // 2), m1, attr | curses.A_BOLD
         )
@@ -668,7 +668,7 @@ def main(stdscr):
                 elif ch in (ord("q"), ord("Q"), 27):
                     world.quit = True
             elif world.state == "DEAD":
-                if ch in (ord("r"), ord("R")):
+                if ch in (ord("r"), ord("R"), ord(" "), ord("p"), ord("P")):
                     world.restart()
                 elif ch in (ord("q"), ord("Q"), 27):
                     world.quit = True
